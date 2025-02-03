@@ -1,0 +1,57 @@
+kind: Job
+metadata:
+  name: dig-job
+spec:
+  template:
+    spec:
+      containers:
+      - name: dig
+        image: ubuntu
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          apt-get update && apt-get install -y dnsutils curl jq;
+ 
+          # Extract DNS servers from /etc/resolv.conf
+          RESOLVERS=$(awk '/^nameserver/ {print $2}' /etc/resolv.conf);
+ 
+          # Get CoreDNS pod IPs (assuming they run in kube-system)
+          COREDNS_PODS=$(kubectl get pods -n kube-system -l k8s-app=kube-dns -o json | jq -r '.items[].status.podIP');
+ 
+          # Define up to 3 on-prem customer DNS servers (Modify as needed)
+          CUSTOMER_DNS_SERVERS=("192.168.1.1" "192.168.2.2" "192.168.3.3")
+ 
+          while true; do 
+            echo "=== /etc/resolv.conf Contents ===";
+            cat /etc/resolv.conf;
+            echo "=== Dig Results from /etc/resolv.conf DNS Servers ===";
+            for DNS_SERVER in $RESOLVERS; do
+              echo "Using resolver: $DNS_SERVER";
+              dig @$DNS_SERVER $HOSTNAME;
+            done
+ 
+            echo "=== Dig Results from CoreDNS Pods ===";
+            for CORE_DNS in $COREDNS_PODS; do
+              echo "Using CoreDNS pod: $CORE_DNS";
+              dig @$CORE_DNS $HOSTNAME;
+            done
+ 
+            echo "=== Dig Results from On-Prem Customer DNS Servers ===";
+            for CUSTOMER_DNS in "${CUSTOMER_DNS_SERVERS[@]}"; do
+              echo "Using On-Premises DNS Server: $CUSTOMER_DNS";
+              dig @$CUSTOMER_DNS $HOSTNAME;
+            done
+ 
+            echo "=== Nslookup Result ===";
+            nslookup $HOSTNAME;
+ 
+            echo "=== Curl Result ===";
+            curl -I $HOSTNAME;
+ 
+            sleep 10;
+          done
+        env:
+        - name: HOSTNAME
+          value: "NEW_HOSTNAME"  # Replace with your target hostname
+      restartPolicy: OnFailure
+  backoffLimit: 4
